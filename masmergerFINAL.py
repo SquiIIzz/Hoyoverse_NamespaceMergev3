@@ -4,6 +4,7 @@ import os
 import re
 import difflib
 import argparse
+import configparser
 import hashlib
 import chardet
 import sys
@@ -23,18 +24,17 @@ def main():
         existing_merges = check_existing_merges(args.root)
         if existing_merges:
             print("Pre-existing merge files detected in subdirectories.")
-            choice = input("Enter [1] to delete then merge [2] to delete [any other key] to exit: ")
+            choice = input("Enter\n[1] to delete then remerge (when updating skins)\n[2] to delete \n[any other key] to exit: ")
             if choice == '1':
                 print("deleting and remerging")
                 delete_main(args.root)
             elif choice == '2':
                 print("deleting old .ini files")
                 delete_main(args.root)
-                return
             else:
                 print("Exiting program.")
                 return
-    
+
     # Delete master ini. Del 2nd level subfolders & restore disabled
     if args.delete:
         delete_main(args.root)
@@ -42,23 +42,25 @@ def main():
 
     print("\nGenshin and Star Rail Mod Merger/Toggle Creator Script Utilizing Namespaces\n")
 
-    # Get all character folders, excluding those with "disabled" in their name
     character_folders = [f for f in os.listdir(args.root) if os.path.isdir(os.path.join(args.root, f)) and "disabled" not in f.lower()]
-
-    # get all key bindings
-    key, back = get_key_bindings()
+    
+    # Manage config file
+    config = manage_config(args, character_folders)
 
     for character_folder in character_folders:
         character_path = os.path.join(args.root, character_folder)
         print(f"\nProcessing {character_folder}...")
 
+        # Get key bindings from config
+        key = config[character_folder].get('Cycle forward', 'ctrl \'')
+        back = config[character_folder].get('Cycle backward', 'ctrl ;')
+
         if args.enable:
-            print("Re-enabling all .ini files")
+            print("Re-enabling all.ini files")
             enable_ini(character_path, delete_disabled=args.enable)
             print()
-
         if args.renable:
-            print("Re-enabling old .ini files")
+            print("Re-enabling old.ini files")
             renable_ini(character_path)
             print()
 
@@ -78,11 +80,7 @@ def main():
             if i != 0:
                 print(f"\t{i}: {ini_file}")
 
-        # Use character folder name as the namespace
-        name = character_folder
-
         print("\nThis script will merge using the order listed above.")
-        
         if args.vanilla:
             print("The vanilla outfit will be removed at the end")
             ini_files.pop(0)
@@ -91,8 +89,8 @@ def main():
         print("Generating backups")
         generate_backup(ini_files)
 
-        # Generate the master .ini file
-        create_master_ini(ini_files, name, key, back, character_path)
+        # Generate the master.ini file
+        create_master_ini(ini_files, character_folder, key, back, character_path)
 
     print("All operations completed")
     
@@ -278,19 +276,15 @@ def renable_ini(path):
                     os.rename(disabled_path, new_path)
     print("Old Merge Script Disabled .ini files re-enabled.")
 
-def get_key_bindings():
-    print("\nPlease enter the key that will be used to cycle mods forward. Key must be a single character (default: ')\n")
-    key = input().strip() or "'"
-    while len(key) != 1:
-        print("\nKey not recognized, must be a single character\n")
-        key = input().strip() or "'"
-    
-    print("\nPlease enter the key that will be used to cycle mods backwards. Key must be a single character (default: ;)\n")
-    back = input().strip() or ";"
-    while len(back) != 1:
-        print("\nKey not recognized, must be a single character\n")
-        back = input().strip() or ";"
-    
+def get_key_bindings(character):
+    print(f"\nNew character added")
+    print(f"\nSet up cycle keys for {character}")
+    print("Please enter the key that will be used to cycle mods forward. (default: ctrl ')")
+    key = input().strip() or "ctrl '"
+   
+    print("Please enter the key that will be used to cycle mods backwards. (default: ctrl ;)")
+    back = input().strip() or "ctrl ;"
+   
     return key.lower(), back.lower()
 
 def create_master_ini(ini_files, name, key, back, character_path):
@@ -298,23 +292,24 @@ def create_master_ini(ini_files, name, key, back, character_path):
     # Generates the namespace for the master file
     constants =     f"namespace = {name}\\Master\n; Constants---------------------------\n\n"
     overrides =    "; Overrides ---------------------------\n\n"
-    
+    constants += f"$creditinfo = 0\n"
     swapvar = "swapvar"
+    
     # adds the [Constants] section
-    constants += f"[Constants]\nglobal persist ${swapvar} = 0\n"
+    constants += f"[Constants] \nglobal persist ${swapvar} = 0\n"
     constants += f"global $active\n"
     constants += "global $creditinfo = 0\n"
-
+    
     # adds the [KeySwap] section
     constants += f"\n[KeySwap]\n"
     constants += f"condition = $active == 1\n"
     constants += f"key = {key}\nback = {back}\ntype = cycle\n"
-    constants += f"${swapvar}= {','.join([str(x) for x in range(len(ini_files))])}\n$creditinfo = 0\n\n"
-
+    constants += f"${swapvar}= {','.join([str(x) for x in range(len(ini_files))])}\n$creditinfo = 0 \n\n"
+    
     # adds the [Present] section to not swap when character is not active
-    constants += f"[Present]\n"
+    constants += f"[Present] \n"
     constants += f"post $active = 0\n"
-
+    
     # this gets the position override and may cause problems if mods for multiple charters are added as that character will not be detected
     overrides = f"[TextureOverride{name}Position]\n"
     for file in ini_files:
@@ -324,20 +319,17 @@ def create_master_ini(ini_files, name, key, back, character_path):
                 overrides += temp
                 break
     overrides += "$active = 1\n"
-
+    
     print("Modifying inis...")
     for i, ini_file in enumerate(ini_files):
         if ini_file is not None:
             edit_ini(str(ini_file), name, i)
-
     ini_files = [x for x in ini_files if x is not None]
-
     result = f"; Merged Mod: {', '.join([x for x in ini_files])}\n\n"
     result += constants
     result += overrides
-    result += "\n\n; .ini generated by GIMI (Genshin-Impact-Model-Importer) mod merger script utilizing namespaces\n"
+    result += "\n\n;.ini generated by GIMI (Genshin-Impact-Model-Importer) mod merger script utilizing namespaces\n"
     result += "; If you have any issues or find any bugs dm qwerty3yuiop on discord or leave a comment on game banana"
-
     with open(os.path.join(character_path, f"Master{name}.ini"), "w", encoding="utf-8") as f:
         f.write(result)
 
@@ -468,6 +460,43 @@ def rename_file(file_path):
         dir_name = os.path.dirname(file_path)
         base_name = os.path.basename(file_path)
         os.rename(dir_name + '\\DISABLED' + base_name, dir_name + '\\' + base_name)
+        
+        
+# config file creation
+def manage_config(args, character_folders):
+    config = configparser.ConfigParser()
+    config_file = os.path.join(args.root, 'merger_config.ini')
+    
+    if not os.path.exists(config_file):
+        # Create new config file
+        for character in character_folders:
+            config[character] = {
+                'Master file': f'Master{character}.ini',
+                'Cycle forward': 'ctrl \'',
+                'Cycle backward': 'ctrl ;'
+            }
+        
+        with open(config_file, 'w') as configfile:
+            config.write(configfile)
+        print(f"Created new config file: {config_file}")
+    else:
+        # Read existing config file
+        config.read(config_file)
+        
+        # Add new characters if any
+        for character in character_folders:
+            if character not in config:
+                config[character] = {
+                    'Master file': f'Master{character}.ini',
+                    'Cycle forward': 'ctrl \'',
+                    'Cycle backward': 'ctrl ;'
+                }
+        
+        # Update config file with new characters
+        with open(config_file, 'w') as configfile:
+            config.write(configfile)
+    
+    return config
 
 if __name__ == "__main__":
     main()
