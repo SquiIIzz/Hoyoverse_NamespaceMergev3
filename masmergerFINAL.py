@@ -17,30 +17,52 @@ def main():
     parser.add_argument("-e", "--enable", action="store_true", help="Delete disabled .ini files that were created")
     parser.add_argument("-f", "--renable", action="store_true", help="Re-enable disabled .ini files")
     parser.add_argument("-x", "--delete and renmerge", action="store_true", help="deletes and remerges .ini files")
+    parser.add_argument("-dh", "--disable-help", action="store_true", help="Disable all help.ini files")
+    parser.add_argument("-eh", "--enable-help", action="store_true", help="Enable all disabled help.ini files")
+    args = parser.parse_args()
     args = parser.parse_args()
 
     # Check for existing merges if no arguments are provided
     if len(sys.argv) == 1:
         existing_merges = check_existing_merges(args.root)
         if existing_merges:
-            print("Pre-existing merge files detected in subdirectories.")
-            choice = input("Enter\n[1] to delete then remerge (when updating skins)\n[2] to delete \n[any other key] to exit: ")
+            print("\nPre-existing merge files detected in subdirectories.\n")
+            choice = input("Enter [1] to delete then remerge (when updating skins)\nEnter [2] to delete \nEnter [any other key] to exit\n>  ")
             if choice == '1':
                 print("deleting and remerging")
                 delete_main(args.root)
             elif choice == '2':
                 print("deleting old .ini files")
                 delete_main(args.root)
+                print("enabling help .ini files")
+                enable_help(args.root)
+                return
             else:
                 print("Exiting program.")
                 return
-
-    # Delete master ini. Del 2nd level subfolders & restore disabled
+            
     if args.delete:
         delete_main(args.root)
         return
+    
+    if args.disable_help:
+        print("disabling help .ini files")
+        disable_help(args.root)
+        print("help .ini files disabled")
+        return
+
+    if args.enable_help:
+        print("enabling help .ini files")
+        enable_help(args.root)
+        print("help .ini files enabled")
+        return
 
     print("\nGenshin and Star Rail Mod Merger/Toggle Creator Script Utilizing Namespaces\n")
+    choice = input("Press Enter to continue or any other key to exit...")
+    
+    if choice != "":
+        print("Exiting program.")
+        sys.exit()
 
     character_folders = [f for f in os.listdir(args.root) if os.path.isdir(os.path.join(args.root, f)) and "disabled" not in f.lower()]
     
@@ -91,6 +113,10 @@ def main():
 
         # Generate the master.ini file
         create_master_ini(ini_files, character_folder, key, back, character_path)
+        
+        print("disabling help inis")
+        disable_help(args.root)
+        
 
     print("All operations completed")
     
@@ -150,7 +176,7 @@ def delete_main(root):
                             if os.path.exists(disabled_file):
                                 ini_paths.append(os.path.join(subfolder_path, file))
                             else:
-                                print(f"No backup for {file}, {file}.ini preserved")
+                                print(f"No backup for {file}, {file}.ini will be preserved")
 
     if not ini_paths and not master_files:
         print("Found no .ini files with backups or master files - make sure the mod folders are in the correct structure.")
@@ -287,12 +313,35 @@ def get_key_bindings(character):
    
     return key.lower(), back.lower()
 
+def disable_help(root_dir):
+    for root, dirs, files in os.walk(root_dir):
+        for file in files:
+            if file.lower() == "help.ini":
+                old_path = os.path.join(root, file)
+                new_path = os.path.join(root, "DISABLEDhelp.ini")
+                try:
+                    os.rename(old_path, new_path)
+                    print(f"Disabled: {old_path} -> {new_path}")
+                except Exception as e:
+                    print(f"Error disabling {old_path}: {str(e)}")
+
+def enable_help(root_dir):
+    for root, dirs, files in os.walk(root_dir):
+        for file in files:
+            if file.lower() == "disabledhelp.ini":
+                old_path = os.path.join(root, file)
+                new_path = os.path.join(root, "help.ini")
+                try:
+                    os.rename(old_path, new_path)
+                    print(f"Enabled: {old_path} -> {new_path}")
+                except Exception as e:
+                    print(f"Error enabling {old_path}: {str(e)}")
+
 def create_master_ini(ini_files, name, key, back, character_path):
     
     # Generates the namespace for the master file
     constants =     f"namespace = {name}\\Master\n; Constants---------------------------\n\n"
     overrides =    "; Overrides ---------------------------\n\n"
-    constants += f"$creditinfo = 0\n"
     swapvar = "swapvar"
     
     # adds the [Constants] section
@@ -332,9 +381,7 @@ def create_master_ini(ini_files, name, key, back, character_path):
     result += "; If you have any issues or find any bugs dm qwerty3yuiop on discord or leave a comment on game banana"
     with open(os.path.join(character_path, f"Master{name}.ini"), "w", encoding="utf-8") as f:
         f.write(result)
-
-# The rest of the functions (get_user_order, edit_ini, generate_backup, get_position_hash, etc.) remain the same
-
+        
 # Gets the user's preferred order to merge mod files
 
 def get_user_order(ini_files):
@@ -372,6 +419,9 @@ def get_user_order(ini_files):
     # User didn't enter anything and just pressed enter
     return ini_files
 
+###
+###     INI FILE MODIFICATION
+###
 
 # Editing existing inis and adding needed text at the end for shader and texture overrides.
 def edit_ini(path, name, num):
@@ -468,7 +518,8 @@ def manage_config(args, character_folders):
     config_file = os.path.join(args.root, 'merger_config.ini')
     
     if not os.path.exists(config_file):
-        # Create new config file
+        # Create new config file if one doesn't exist already
+        # uses default keybindings of ' and ;
         for character in character_folders:
             config[character] = {
                 'Master file': f'Master{character}.ini',
@@ -482,8 +533,16 @@ def manage_config(args, character_folders):
     else:
         # Read existing config file
         config.read(config_file)
-        
+    
+        # removes character configs when applicable
+        # i.e. their folder name changes or it's deleted
+        for character in list(config.sections()):
+            if character not in character_folders:
+                config.remove_section(character)
+                print(f"Removed configuration for non-existent character folder: {character}")
+    
         # Add new characters if any
+        # i.e. new char added or existing char gets a diff folder name
         for character in character_folders:
             if character not in config:
                 config[character] = {
