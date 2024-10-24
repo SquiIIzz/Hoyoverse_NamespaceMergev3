@@ -1,6 +1,7 @@
 #MasterMerger
 
 import os
+import io
 import re
 import difflib
 import argparse
@@ -8,6 +9,9 @@ import configparser
 import hashlib
 import chardet
 import sys
+
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 def main():
     parser = argparse.ArgumentParser(description="Generates merged mods for multiple characters")
@@ -89,7 +93,7 @@ def main():
         # Search for .ini files in the character folder
         ini_files = collect_ini(character_path)
         if not ini_files:
-            print(f"Found no .ini files in {character_folder} - skipping.")
+            print(f"\nNo .ini files - skipping.")
             continue
 
         # Place holder for the vanilla outfit
@@ -114,9 +118,9 @@ def main():
         # Generate the master.ini file
         create_master_ini(ini_files, character_folder, key, back, character_path)
         
-        print("disabling help inis")
-        disable_help(args.root)
-        
+    
+    print("disabling help inis")
+    disable_help(args.root)    
 
     print("All operations completed")
     
@@ -425,37 +429,45 @@ def get_user_order(ini_files):
 
 # Editing existing inis and adding needed text at the end for shader and texture overrides.
 def edit_ini(path, name, num):
-    with open(path, 'r') as file:
-        lines = file.readlines()
-    found = False
-    count = 0
-    max = len(lines)-1
-    block = []
-    with open(path, 'w') as file:
-        for line in lines:
-            # Ends the if when a line with [ or when end of file is reached
-            # meant to end on next overide
-            if found and line.startswith('[') or count == max:
-                block.append(line)
-                line = comment_fix(block)
-                block = []
-                found = False
-            # if there is already a match priority remove it
-            elif found and line.lower().startswith('match_priority'):
-                block.append("")
-            # adds a tab to every line in the if
-            elif found:
-                line = "\t" + line
-                block.append(line)
-            # looks for lines that start with a hash and starts an if statement.
-            elif line.strip().lower().startswith('hash = ') or line.strip().lower().startswith('hash='):
-                # adds namespace also this line is by ricochet_7
-                line = line + f'match_priority = {num}\n' + f"if $\{name}\Master\swapvar=={num}\n"
-                found = True
-                block.append(line)
-            if not found:
-                file.write(line)
-            count += 1
+    try:
+        with open(path, 'rb') as file:
+            raw_content = file.read()
+        detected_encoding = chardet.detect(raw_content)['encoding']
+        content = raw_content.decode(detected_encoding or 'utf-8', errors='replace')
+        lines = content.splitlines(keepends=True)  # Preserve line endings
+
+        found = False
+        count = 0
+        max_lines = len(lines) - 1
+        block = []
+        
+        with open(path, 'w', encoding='utf-8', newline='') as file:
+            for line in lines:
+                if line.strip().startswith('[') and line.strip().endswith(']'):
+                    if found:
+                        file.writelines(block)
+                        block = []
+                    found = False
+                    file.write(line)
+                elif found:
+                    block.append(line)
+                else:
+                    file.write(line)
+                
+                if line.strip().startswith('[TextureOverride'):
+                    found = True
+                    count += 1
+                if count == max_lines:
+                    file.writelines(block)
+            
+            # Add the new lines at the end of the file
+            file.write(f"\nmatch_priority = 1\n")
+            file.write(f"if $\\{name}\\Master\\swapvar=={num}\n")
+            file.write(f"\t$active = 1\n")
+            file.write(f"endif\n")
+
+    except Exception as e:
+        print(f"Error processing file {path}: {str(e)}")
 
 # makes sure to place the endif immediatly after code to be enclosed
 def comment_fix(block):
@@ -479,31 +491,53 @@ def comment_fix(block):
 # makes a copy of a file that is DISABLED
 def generate_backup(file_list):
     for file_path in file_list:
-        try:
-            if file_path != None:
+        if file_path is not None:
+            try:
                 dir_name = os.path.dirname(file_path)
                 base_name = os.path.basename(file_path)
                 new_file_path = os.path.join(dir_name, 'DISABLED' + base_name)
-                with open(file_path, 'r') as original_file, open(new_file_path, 'w') as new_file:
-                    new_file.write(original_file.read())
-        except:
-            print("!!! NON-LATIN/ASCII FILNEAME ENCOUNTERED !!!")
-            print("Please rename to process properly")
-        continue
+                
+                # Read the original file in binary mode
+                with open(file_path, 'rb') as original_file:
+                    content = original_file.read()
+                
+                # Write the content to the new file in binary mode
+                with open(new_file_path, 'wb') as new_file:
+                    new_file.write(content)
+            
+            except UnicodeEncodeError:
+                print(f"could not process non ASCII filename: {file_path}")
+                print("Please rename the file to process properly")
+            except IOError as e:
+                print(f"Error processing file {file_path}: {str(e)}")
+            except Exception as e:
+                print(f"Unexpected error with file {file_path}: {str(e)}")
+
 
 # finds the position override of a a character and returns it
 def get_position_hash(path):
-    with open(path, 'r') as file:
-        lines = file.readlines()
+    try:
+        # Open the file in binary mode to read raw bytes
+        with open(path, 'rb') as file:
+            raw_content = file.read()
+        # Detect the encoding of the file
+        detected_encoding = chardet.detect(raw_content)['encoding']
+        # Decode the content using the detected encoding
+        content = raw_content.decode(detected_encoding or 'utf-8', errors='replace')
+        # Split the content into lines
+        lines = content.splitlines()
         found = False
         for line in lines:
-            # Ends the if when a line with [] or ; is found
-            if line.startswith('[TextureOverride') and line.endswith('Position]\n'):
+            if line.startswith('[TextureOverride') and line.endswith('Position]'):
                 found = True
             if found and (line.strip().lower().startswith('hash = ') or line.strip().lower().startswith('hash=')):
-                return line
+                return line + "\n"
+        
         return ";None found\n"
-
+    except Exception as e:
+        print(f"Error reading file {path}: {str(e)}")
+        return ";Error reading file\n"
+    
 # renames file
 def rename_file(file_path):
     if file_path != None:
