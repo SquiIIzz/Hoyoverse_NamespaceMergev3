@@ -20,7 +20,6 @@ def main():
     parser.add_argument("-dh", "--disable-help", action="store_true", help="Disable all help.ini files")
     parser.add_argument("-eh", "--enable-help", action="store_true", help="Enable all disabled help.ini files")
     args = parser.parse_args()
-    args = parser.parse_args()
 
     # Check for existing merges if no arguments are provided
     if len(sys.argv) == 1:
@@ -113,11 +112,10 @@ def main():
 
         # Generate the master.ini file
         create_master_ini(ini_files, character_folder, key, back, character_path)
-        
-        print("disabling help inis")
-        disable_help(args.root)
-        
-
+             
+    print("disabling help inis")
+    disable_help(args.root)
+    
     print("All operations completed")
     
 ###
