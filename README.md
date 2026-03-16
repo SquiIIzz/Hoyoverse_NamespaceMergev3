@@ -5,12 +5,11 @@ inside the main 'characters' folder to automatically merge .ini files of ALL cha
 the parent directory.
 
 <b>Current features:</b>
-1. CLI-based navigation
-2. bulk namespace merge & unmerge
-3. bulk character update (updates merged namespace with any new mods)
-4. disables help.ini files (prevents hotkey issues & unwanted overlays on incompatible skins)
-5. config file creation to modify hotkeys
-6. .ini file rollback in case of skins bricking
+1. bulk namespace merge & unmerge
+2. bulk character update (updates merged namespace with any new mods)
+3. disables help.ini files (prevents hotkey issues & unwanted overlays on incompatible skins)
+4. config file creation to modify hotkeys
+5. .ini file rollback in case of skins bricking
 
 <b>DISCLAIMER:</b>
 
